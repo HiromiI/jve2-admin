@@ -68,6 +68,7 @@ function LoginPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    setEmailError('');
     setPasswordError('');
 
     if (!validateEmailField() || !isPasswordValid) {
@@ -78,6 +79,13 @@ function LoginPage() {
 
     try {
       const response = await login({ email, password });
+
+      if (response.user.role === 'student') {
+        setEmailError('Usuário não encontrado. Tente novamente.');
+        setPasswordError('');
+        return;
+      }
+
       signIn(response);
       navigate('/courses', { replace: true });
     } catch (error) {

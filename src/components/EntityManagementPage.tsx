@@ -66,6 +66,11 @@ interface EntityManagementPageProps<TItem extends { id: number }, TFormValues ex
   isEditDisabled?: (item: TItem) => boolean;
   isDeleteDisabled?: (item: TItem) => boolean;
   shouldDisableSaveForAlert?: (message: string) => boolean;
+  getValidationAlertMessage?: (params: {
+    values: TFormValues;
+    errors: FieldErrors<TFormValues>;
+    dialogState: DialogState<TItem>;
+  }) => string | null;
   dialogPanelClassName?: string;
   reloadKey?: string;
 }
@@ -98,6 +103,7 @@ function EntityManagementPage<TItem extends { id: number }, TFormValues extends 
   isEditDisabled,
   isDeleteDisabled,
   shouldDisableSaveForAlert,
+  getValidationAlertMessage,
   dialogPanelClassName,
   reloadKey,
 }: EntityManagementPageProps<TItem, TFormValues>) {
@@ -322,9 +328,19 @@ function EntityManagementPage<TItem extends { id: number }, TFormValues extends 
 
   const handleSave = async () => {
     const nextErrors = validate(formValues, dialogState);
+    const validationAlertMessage = getValidationAlertMessage?.({
+      values: formValues,
+      errors: nextErrors,
+      dialogState: dialogState as DialogState<TItem>,
+    });
 
-    if (Object.values(nextErrors).some((value) => Boolean(value))) {
+    if (Object.values(nextErrors).some((value) => Boolean(value)) || validationAlertMessage) {
       setFormErrors(nextErrors);
+
+      if (validationAlertMessage) {
+        showDialogAlert(validationAlertMessage);
+      }
+
       return;
     }
 

@@ -119,6 +119,10 @@ function stripRichText(value: string) {
     .trim();
 }
 
+function hasAlternativeContent(text: string, imagePreviewUrl: string, imageFile: File | null) {
+  return Boolean(stripRichText(text) || imagePreviewUrl || imageFile);
+}
+
 function getCorrectAlternative(question: Question) {
   const entries = [
     question.alternative1Correct,
@@ -388,28 +392,41 @@ function QuestionsPage() {
         imagePreviewUrl: '',
         removeImage: '',
         correctAlternative: values.correctAlternative ? '' : 'Campo obrigatório.',
-        alternative1: stripRichText(values.alternative1) ? '' : 'Campo obrigatório.',
+        alternative1: hasAlternativeContent(values.alternative1, values.alternative1ImagePreviewUrl, values.alternative1ImageFile)
+          ? ''
+          : 'Campo obrigatório.',
         alternative1ImageFile: '',
         alternative1ImagePreviewUrl: '',
         removeAlternative1Image: '',
-        alternative2: stripRichText(values.alternative2) ? '' : 'Campo obrigatório.',
+        alternative2: hasAlternativeContent(values.alternative2, values.alternative2ImagePreviewUrl, values.alternative2ImageFile)
+          ? ''
+          : 'Campo obrigatório.',
         alternative2ImageFile: '',
         alternative2ImagePreviewUrl: '',
         removeAlternative2Image: '',
-        alternative3: stripRichText(values.alternative3) ? '' : 'Campo obrigatório.',
+        alternative3: hasAlternativeContent(values.alternative3, values.alternative3ImagePreviewUrl, values.alternative3ImageFile)
+          ? ''
+          : 'Campo obrigatório.',
         alternative3ImageFile: '',
         alternative3ImagePreviewUrl: '',
         removeAlternative3Image: '',
-        alternative4: stripRichText(values.alternative4) ? '' : 'Campo obrigatório.',
+        alternative4: hasAlternativeContent(values.alternative4, values.alternative4ImagePreviewUrl, values.alternative4ImageFile)
+          ? ''
+          : 'Campo obrigatório.',
         alternative4ImageFile: '',
         alternative4ImagePreviewUrl: '',
         removeAlternative4Image: '',
-        alternative5: stripRichText(values.alternative5) ? '' : 'Campo obrigatório.',
+        alternative5: '',
         alternative5ImageFile: '',
         alternative5ImagePreviewUrl: '',
         removeAlternative5Image: '',
         skillIds: '',
       })}
+      getValidationAlertMessage={({ values }) =>
+        values.correctAlternative === '5' && !hasAlternativeContent(values.alternative5, values.alternative5ImagePreviewUrl, values.alternative5ImageFile)
+          ? 'Erro!\nInsira o conteúdo da Alternativa 5.'
+          : null
+      }
       renderForm={({ values, errors, setFieldValue }) => (
         <div className="space-y-8">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

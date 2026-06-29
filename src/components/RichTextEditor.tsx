@@ -6,6 +6,8 @@ import {
   FiList,
   FiUnderline,
 } from 'react-icons/fi';
+import katex from 'katex';
+import FormulaEditor from './FormulaEditor';
 
 interface RichTextEditorProps {
   id?: string;
@@ -63,6 +65,14 @@ const formulaTemplateOptions = [
 ] as const;
 
 const formulaSymbolOptions = ['\\alpha', '\\beta', '\\gamma', '\\theta', '\\pi', '\\ge', '\\le', '\\neq', '\\cdot', '\\times'];
+
+const formulaFontOptions = [
+  { label: 'Cambria Math', value: 'Cambria Math, STIX Two Math, Times New Roman, serif' },
+  { label: 'Times New Roman', value: 'Times New Roman, serif' },
+  { label: 'Georgia', value: 'Georgia, serif' },
+] as const;
+
+type FormulaFontFamily = (typeof formulaFontOptions)[number]['value'];
 
 const questionToolbarButtons: ToolbarButton[] = [
   {
@@ -207,11 +217,204 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#39;');
 }
 
+function readBraceGroup(source: string, startIndex: number) {
+  if (source[startIndex] !== '{') {
+    return null;
+  }
+
+  let depth = 0;
+
+  for (let index = startIndex; index < source.length; index += 1) {
+    const currentChar = source[index];
+
+    if (currentChar === '\\') {
+      index += 1;
+      continue;
+    }
+
+    if (currentChar === '{') {
+      depth += 1;
+    }
+
+    if (currentChar === '}') {
+      depth -= 1;
+
+      if (depth === 0) {
+        return {
+          value: source.slice(startIndex + 1, index),
+          nextIndex: index + 1,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function renderFormulaText(text: string) {
+  return escapeHtml(text)
+    .replace(/\\alpha/g, 'α')
+    .replace(/\\beta/g, 'β')
+    .replace(/\\gamma/g, 'γ')
+    .replace(/\\theta/g, 'θ')
+    .replace(/\\pi/g, 'π')
+    .replace(/\\pm/g, '±')
+    .replace(/\\ge/g, '≥')
+    .replace(/\\le/g, '≤')
+    .replace(/\\neq/g, '≠')
+    .replace(/\\cdot/g, '·')
+    .replace(/\\times/g, '×')
+    .replace(/\\to/g, '→')
+    .replace(/\\infty/g, '∞')
+    .replace(/(^|[^A-Za-z0-9>])([A-Za-z0-9])\^\{([^{}]+)\}/g, (_match, prefix, base, exponent) => {
+      return `${prefix}<span class="inline-flex items-start gap-0.5 align-baseline"><span>${base}</span><sup class="text-[0.7em] leading-none">${exponent}</sup></span>`;
+    })
+    .replace(/(^|[^A-Za-z0-9>])([A-Za-z0-9])\^([A-Za-z0-9]+)/g, (_match, prefix, base, exponent) => {
+      return `${prefix}<span class="inline-flex items-start gap-0.5 align-baseline"><span>${base}</span><sup class="text-[0.7em] leading-none">${exponent}</sup></span>`;
+    })
+    .replace(/(^|[^A-Za-z0-9>])([A-Za-z0-9])_\{([^{}]+)\}/g, (_match, prefix, base, subscript) => {
+      return `${prefix}<span class="inline-flex items-end gap-0.5 align-baseline"><span>${base}</span><sub class="text-[0.72em] leading-none">${subscript}</sub></span>`;
+    })
+    .replace(/(^|[^A-Za-z0-9>])([A-Za-z0-9])_([A-Za-z0-9]+)/g, (_match, prefix, base, subscript) => {
+      return `${prefix}<span class="inline-flex items-end gap-0.5 align-baseline"><span>${base}</span><sub class="text-[0.72em] leading-none">${subscript}</sub></span>`;
+    });
+}
+
+function renderFormulaMarkup(source: string, options: { mode: 'inline' | 'block'; fontFamily: FormulaFontFamily }) {
+  const renderSegment = (segment: string): string => {
+    let html = '';
+
+    for (let index = 0; index < segment.length; ) {
+      if (segment.startsWith('\\frac', index)) {
+        const numeratorStart = index + '\\frac'.length;
+        const numeratorGroup = readBraceGroup(segment, numeratorStart);
+
+        if (!numeratorGroup) {
+          html += renderFormulaText(segment.slice(index, index + 5));
+          index += 5;
+          continue;
+        }
+
+        const denominatorGroup = readBraceGroup(segment, numeratorGroup.nextIndex);
+
+        if (!denominatorGroup) {
+          html += renderFormulaText(segment.slice(index, numeratorGroup.nextIndex));
+          index = numeratorGroup.nextIndex;
+          continue;
+        }
+
+        const numeratorHtml = renderSegment(numeratorGroup.value);
+        const denominatorHtml = renderSegment(denominatorGroup.value);
+
+        html += `
+          <span class="inline-flex flex-col items-center align-middle mx-1 text-[1.04em] leading-none">
+            <span class="min-w-full border-b border-slate-900 px-2 pb-1 text-center">${numeratorHtml}</span>
+            <span class="pt-1 text-center">${denominatorHtml}</span>
+          </span>
+        `;
+
+        index = denominatorGroup.nextIndex;
+        continue;
+      }
+
+      if (segment.startsWith('\\sqrt', index)) {
+        const radicandStart = index + '\\sqrt'.length;
+        const radicandGroup = readBraceGroup(segment, radicandStart);
+
+        if (!radicandGroup) {
+          html += renderFormulaText(segment.slice(index, index + 5));
+          index += 5;
+          continue;
+        }
+
+        const radicandHtml = renderSegment(radicandGroup.value);
+
+        html += `
+          <span class="inline-flex items-start align-middle mx-1 text-[1.06em] leading-none">
+            <span class="text-[1.2em] leading-none">√</span>
+            <span class="border-t border-slate-900 pl-1 pt-1">${radicandHtml}</span>
+          </span>
+        `;
+
+        index = radicandGroup.nextIndex;
+        continue;
+      }
+
+      if (segment.startsWith('\\begin{bmatrix}', index)) {
+        const matrixEnd = segment.indexOf('\\end{bmatrix}', index);
+
+        if (matrixEnd === -1) {
+          html += renderFormulaText(segment.slice(index));
+          break;
+        }
+
+        const matrixContent = segment.slice(index + '\\begin{bmatrix}'.length, matrixEnd).trim();
+        const rows = matrixContent
+          .split('\\\\')
+          .map((row) => row.trim())
+          .filter(Boolean)
+          .map((row) => row.split('&').map((cell) => renderSegment(cell.trim())));
+
+        html += `
+          <span class="inline-flex items-center align-middle mx-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-[0.98em] leading-none">
+            <span class="mr-2 text-slate-500">[</span>
+            <span class="inline-grid gap-x-3 gap-y-1" style="grid-template-columns: repeat(${Math.max(1, rows[0]?.length ?? 1)}, auto);">
+              ${rows
+                .map((row) => row.map((cell) => `<span class="whitespace-nowrap">${cell}</span>`).join(''))
+                .join('')}
+            </span>
+            <span class="ml-2 text-slate-500">]</span>
+          </span>
+        `;
+
+        index = matrixEnd + '\\end{bmatrix}'.length;
+        continue;
+      }
+
+      if (segment[index] === '\\') {
+        const commandMatch = segment.slice(index).match(/^\\[a-zA-Z]+/);
+
+        if (commandMatch) {
+          html += renderFormulaText(commandMatch[0]);
+          index += commandMatch[0].length;
+          continue;
+        }
+      }
+
+      let nextSpecialIndex = segment.length;
+      const nextCandidates = ['\\frac', '\\sqrt', '\\begin{bmatrix}', '\\'];
+
+      nextCandidates.forEach((candidate) => {
+        const candidateIndex = segment.indexOf(candidate, index + 1);
+
+        if (candidateIndex >= 0) {
+          nextSpecialIndex = Math.min(nextSpecialIndex, candidateIndex);
+        }
+      });
+
+      const plainText = segment.slice(index, nextSpecialIndex);
+      html += renderFormulaText(plainText);
+      index = nextSpecialIndex;
+    }
+
+    return html;
+  };
+
+  const renderedSource = renderSegment(source.trim());
+
+  return `
+    <div data-formula="${options.mode}" data-formula-source="${escapeHtml(source.trim())}" contenteditable="false" style="display: ${options.mode === 'block' ? 'block' : 'inline-flex'}; width: ${options.mode === 'block' ? '100%' : 'auto'}; justify-content: ${options.mode === 'block' ? 'center' : 'flex-start'}; align-items: center; border-radius: 18px; border: 1px solid #d8e3f0; background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%); padding: ${options.mode === 'block' ? '16px 20px' : '6px 10px'}; font-family: ${options.fontFamily}; font-size: ${options.mode === 'block' ? '1.45em' : '1.12em'}; line-height: 1.6; color: #111827; box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 6px 16px rgba(15, 23, 42, 0.06); overflow-x: auto;">
+      <span style="display: inline-flex; align-items: center; justify-content: center; gap: 0.35em; white-space: nowrap; min-width: min-content;">${renderedSource}</span>
+    </div>
+  `;
+}
+
 function RichTextEditor({ id, label, value, error, placeholder, onChange, variant = 'question' }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const savedSelectionRef = useRef<Range | null>(null);
   const [isFormulaBuilderOpen, setIsFormulaBuilderOpen] = useState(false);
   const [formulaDraft, setFormulaDraft] = useState('');
+  const [formulaFontFamily, setFormulaFontFamily] = useState<FormulaFontFamily>(formulaFontOptions[0].value);
   const toolbarButtons = useMemo(
     () => (variant === 'question' ? questionToolbarButtons : alternativeToolbarButtons),
     [variant],
@@ -289,22 +492,22 @@ function RichTextEditor({ id, label, value, error, placeholder, onChange, varian
   const closeFormulaBuilder = () => {
     setIsFormulaBuilderOpen(false);
     setFormulaDraft('');
+    setFormulaFontFamily(formulaFontOptions[0].value);
   };
 
-  const insertFormula = (mode: 'inline' | 'block') => {
-    const trimmedFormula = formulaDraft.trim();
-
-    if (!trimmedFormula) {
-      return;
-    }
-
+  const insertFormula = ({ latex, mode }: { latex: string; mode: 'inline' | 'block' }) => {
     restoreSelection();
 
-    const escapedFormula = escapeHtml(trimmedFormula);
+    const renderedFormula = katex.renderToString(latex, {
+      displayMode: mode === 'block',
+      throwOnError: false,
+      strict: 'ignore',
+    });
+
     const formulaHtml =
       mode === 'block'
-        ? `<div data-formula="block" style="margin: 8px 0; border-radius: 10px; border: 1px solid #e2e8f0; background: #f8fafc; padding: 8px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;">\\[${escapedFormula}\\]</div>`
-        : `<span data-formula="inline" style="display: inline-block; margin: 0 2px; border-radius: 8px; border: 1px solid #e2e8f0; background: #f8fafc; padding: 1px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;">\\(${escapedFormula}\\)</span>`;
+        ? `<div data-math-formula="true" data-math-mode="block" data-latex="${escapeHtml(latex)}" contenteditable="false" style="margin: 12px 0; display: block; overflow-x: auto; text-align: center;">${renderedFormula}</div>`
+        : `<span data-math-formula="true" data-math-mode="inline" data-latex="${escapeHtml(latex)}" contenteditable="false" style="display: inline-flex; align-items: center; vertical-align: middle; margin: 0 2px;">${renderedFormula}</span>`;
 
     document.execCommand('insertHTML', false, formulaHtml);
     handleInput();
@@ -384,91 +587,7 @@ function RichTextEditor({ id, label, value, error, placeholder, onChange, varian
           ))}
         </div>
 
-        {isFormulaBuilderOpen ? (
-          <div className="space-y-4 border-b border-slate-200 bg-slate-50 px-4 py-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Construtor de fórmula</p>
-                <p className="text-xs text-slate-500">Use sintaxe matemática e atalhos para montar fórmulas inline ou em bloco.</p>
-              </div>
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={closeFormulaBuilder}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
-              >
-                Fechar
-              </button>
-            </div>
-
-            <textarea
-              value={formulaDraft}
-              onChange={(event) => setFormulaDraft(event.target.value)}
-              placeholder="Exemplo: \\frac{x^2 + 1}{\\sqrt{y}}"
-              className="min-h-28 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            />
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Modelos rápidos</p>
-              <div className="flex flex-wrap gap-2">
-                {formulaTemplateOptions.map((option) => (
-                  <button
-                    key={option.label}
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => setFormulaDraft((currentValue) => `${currentValue}${currentValue ? ' ' : ''}${option.value}`)}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Símbolos</p>
-              <div className="flex flex-wrap gap-2">
-                {formulaSymbolOptions.map((symbol) => (
-                  <button
-                    key={symbol}
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => setFormulaDraft((currentValue) => `${currentValue}${currentValue ? ' ' : ''}${symbol}`)}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
-                  >
-                    {symbol}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Prévia do código</p>
-              <code className="mt-2 block whitespace-pre-wrap break-words text-sm text-slate-700">
-                {formulaDraft.trim() ? formulaDraft : '\\frac{a+b}{c}'}
-              </code>
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => insertFormula('inline')}
-                className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
-              >
-                Inserir inline
-              </button>
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => insertFormula('block')}
-                className="rounded-2xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
-              >
-                Inserir em bloco
-              </button>
-            </div>
-          </div>
-        ) : null}
+        <FormulaEditor isOpen={isFormulaBuilderOpen} onClose={closeFormulaBuilder} onInsert={insertFormula} />
 
         <div className="relative">
           {isEmpty && placeholder ? (

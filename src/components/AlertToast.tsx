@@ -5,10 +5,14 @@ interface AlertToastProps {
 }
 
 function AlertToast({ title, onClose, showCloseButton = true }: AlertToastProps) {
+  const [alertTitle, ...alertDetails] = title.split('\n');
+  const detailText = alertDetails.join('\n').trim();
+
   return (
     <div className="flex min-w-[320px] max-w-md items-start gap-4 rounded-2xl border border-amber-200 bg-white p-4 shadow-panel">
-      <div className="flex-1">
-        <p className="whitespace-pre-line text-sm font-medium text-slate-800">{title}</p>
+      <div className="flex-1 space-y-1">
+        <p className="text-sm font-bold text-slate-900">{alertTitle}</p>
+        {detailText ? <p className="whitespace-pre-line text-sm font-medium text-slate-700">{detailText}</p> : null}
       </div>
       {showCloseButton && onClose ? (
         <button
